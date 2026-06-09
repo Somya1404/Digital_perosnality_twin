@@ -1,0 +1,215 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+pydantic==2.7.1
+pandas==2.2.2
+nltk==3.8.1
+spacy==3.7.5
+emoji==2.12.1
+torch==2.3.0
+transformers==4.41.2
+sentence-transformers==3.0.1
+python-multipart==0.0.9
+import re
+import emoji
+import pandas as pd
+import spacy
+from typing import Dict, List, Any
+# Load spaCy English model (make sure to download it using: python -m spacy download en_core_web_sm)
+try:
+    nlp = spacy.load("en_core_web_sm")
+except ImportError:
+    nlp = None
+class DataPreprocessor:
+    """
+    Phase 1: Data Collection & Preprocessing
+    Cleans raw conversational data from different files, formats, and channels.
+    WHAT WE ARE BUILDING:
+      A cleaning engine that takes raw, messy chat logs (slang, emojis, URLs,
+      punctuation noise) and converts them into structured, normalized text.
+    WHY WE BUILD IT:
+      Raw text from WhatsApp, email, etc. is full of noise. If we train a model
+      on "u r awesome lol!!" it learns garbage. We must clean it first — but
+      KEEP stylistic signals like emojis and punctuation in a separate profile.
+    HOW IT WORKS:
+      1. Lowercase the text
+      2. Remove URLs (they carry no personality signal)
+      3. Translate chat slang (u -> you, lol -> laugh out loud)
+      4. Collapse multiple spaces
+      5. Separately extract emojis for the personality profile
+    NLP CONCEPTS USED:
+      - Tokenization: splitting text into words
+      - Normalization: converting text to a standard form
+      - Regex: pattern-based text manipulation
+    LIBRARIES:
+      - re     : Python built-in regex for pattern matching
+      - emoji  : Detects and extracts emoji characters
+      - pandas : Manages data in tabular form (DataFrame)
+    """
+    def __init__(self, remove_stopwords: bool = False):
+        self.remove_stopwords = remove_stopwords
+        # Simple slang mapping table
+        # Common English stop words (manual list — no spaCy needed)
+        self.stopwords = {
+            "i", "me", "my", "myself", "we", "our", "ours", "ourselves",
+            "you", "your", "yours", "he", "him", "his", "she", "her",
+            "it", "its", "they", "them", "their", "what", "which", "who",
+            "this", "that", "these", "those", "am", "is", "are", "was",
+            "were", "be", "been", "being", "have", "has", "had", "do",
+            "does", "did", "will", "would", "shall", "should", "may",
+            "might", "must", "can", "could", "a", "an", "the", "and",
+            "but", "or", "nor", "for", "so", "yet", "at", "by", "in",
+            "of", "on", "to", "up", "as", "into", "with", "about",
+            "after", "before", "between", "through", "during", "not"
+        }
+        # Slang translation dictionary
+        self.slang_map = {
+            "u": "you",
+            "r": "are",
+            "ur": "your",
+            "btw": "by the way",
+            "lol": "laugh out loud",
+            "lmao": "laughing",
+            "idk": "i do not know",
+            "imo": "in my opinion",
+            "imho": "in my humble opinion",
+            "tbh": "to be honest",
+            "omg": "oh my god",
+            "gtg": "got to go",
+            "brb": "be right back"
+            "brb": "be right back",
+            "ngl": "not going to lie",
+            "smh": "shaking my head",
+            "irl": "in real life",
+            "dm": "direct message",
+            "fyi": "for your information",
+            "asap": "as soon as possible",
+            "imo": "in my opinion",
+            "bc": "because",
+            "rn": "right now",
+            "fr": "for real",
+            "nvm": "never mind",
+            "omw": "on my way",
+            "hmu": "hit me up",
+            "tbf": "to be fair",
+            "ikr": "i know right",
+            "wdym": "what do you mean",
+        }
+    def clean_text(self, text: str) -> str:
+        """
+        Cleans and normalizes raw text by handling URLs, system messages, 
+        reducing double spacing, and mapping common chat slang.
+        Cleans and normalizes raw text.
+        INPUT : "Hey u r awesome lol!! Check https://google.com 😊"
+        OUTPUT: "hey you are awesome laugh out loud!!"
+        """
+        if not isinstance(text, str):
+            return ""
+        
+        # 1. Convert to lowercase
+        # Step 1: Lowercase
+        text = text.lower().strip()
+        
+        # 2. Remove URLs
+        # Step 2: Remove URLs
+        text = re.sub(r"https?://\S+|www\.\S+", "", text)
+        
+        # 3. Replace slang
+        # Step 3: Remove emoji characters from cleaned text
+        #         (we keep them separately in extract_emojis)
+        text = emoji.replace_emoji(text, replace="")
+        # Step 4: Translate slang word by word
+        words = text.split()
+        normalized_words = [self.slang_map.get(w, w) for w in words]
+        text = " ".join(normalized_words)
+        
+        # 4. Collapse multiple white spaces
+        text = re.sub(r"\s+", " ", text)
+        
+        normalized = [self.slang_map.get(w, w) for w in words]
+        text = " ".join(normalized)
+        # Step 5: Remove extra whitespace
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+    def extract_emojis(self, text: str) -> List[str]:
+        """
+        Extracts emojis from text using the emoji library helper.
+        Extracts emojis from the original raw text.
+        These form part of the personality signature.
+        INPUT : "Awesome work! 🚀🔥"
+        OUTPUT: ["🚀", "🔥"]
+        """
+        if not isinstance(text, str):
+            return []
+        return [c for c in text if emoji.is_emoji(c)]
+        return [ch for ch in text if emoji.is_emoji(ch)]
+    def extract_linguistic_features(self, text: str) -> Dict[str, Any]:
+        """
+        Extracts complex linguistic variables using spaCy, including Part of Speech (POS)
+        counts, punctuation frequencies, and total sentence tokenization.
+        Extracts simple linguistic features without spaCy —
+        using pure Python regex-based tokenization instead.
+        WHAT THIS DETECTS:
+          - How many words (tokens) are in the text
+          - How many are likely nouns (capitalized mid-sentence)
+          - How many punctuation characters exist
+          - Average word length (a proxy for vocabulary complexity)
+        INPUT : "I love innovative strategies for growth."
+        OUTPUT: {"tokens_count": 6, "avg_word_length": 6.5, "punctuations": 1}
+        """
+        if not nlp or not text:
+        if not text or not isinstance(text, str):
+            return {
+                "tokens_count": len(text.split()),
+                "nouns": 0, "verbs": 0, "adjectives": 0, "punctuations": 0
+                "tokens_count": 0,
+                "avg_word_length": 0.0,
+                "punctuations": 0,
+                "question_count": 0,
+                "exclamation_count": 0,
+            }
+        
+        doc = nlp(text)
+        features = {
+            "tokens_count": len(doc),
+            "nouns": sum(1 for token in doc if token.pos_ == "NOUN"),
+            "verbs": sum(1 for token in doc if token.pos_ == "VERB"),
+            "adjectives": sum(1 for token in doc if token.pos_ == "ADJ"),
+            "punctuations": sum(1 for token in doc if token.pos_ == "PUNCT"),
+        words = re.findall(r"\b\w+\b", text)
+        puncts = re.findall(r"[^\w\s]", text)
+        avg_word_len = sum(len(w) for w in words) / max(len(words), 1)
+        return {
+            "tokens_count": len(words),
+            "avg_word_length": round(avg_word_len, 2),
+            "punctuations": len(puncts),
+            "question_count": text.count("?"),
+            "exclamation_count": text.count("!"),
+        }
+        return features
+    def process_chat_dataframe(self, df: pd.DataFrame, text_col: str) -> pd.DataFrame:
+        """
+        Transforms raw chat dataframe to extract structural metadata and clean messages.
+        Main pipeline: takes a raw DataFrame and returns a clean,
+        feature-enriched DataFrame ready for personality analysis.
+        FLOW:
+          Raw DataFrame
+            → clean each message
+            → extract emojis from each message
+            → extract linguistic features from cleaned text
+            → combine all into enriched DataFrame
+        INPUT  : DataFrame with column "text" containing raw messages
+        OUTPUT : DataFrame with added columns:
+                   cleaned_text, emojis, tokens_count,
+                   avg_word_length, punctuations, etc.
+        """
+        df = df.copy()
+        df["cleaned_text"] = df[text_col].apply(self.clean_text)
+        df["emojis"] = df[text_col].apply(self.extract_emojis)
+        
+        # Feature extraction
+        features = df["cleaned_text"].apply(self.extract_linguistic_features)
+        features_df = pd.DataFrame(list(features))
+        
+        return pd.concat([df, features_df], axis=1)
+        return pd.concat([df.reset_index(drop=True),
+                          features_df.reset_index(drop=True)], axis=1)
