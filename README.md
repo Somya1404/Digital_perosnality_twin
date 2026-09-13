@@ -78,8 +78,6 @@ sequenceDiagram
 
 ## 🏃 Deployment & Running Steps
 
-Ensure you are using the active workspace at `C:\Users\jsomy\.gemini\antigravity\scratch\digital_personality_twin`.
-
 ### 1. Install Dependencies
 ```bash
 pip install fastapi uvicorn spacy nltk emoji pandas pydantic torch transformers
